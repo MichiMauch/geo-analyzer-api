@@ -63,6 +63,11 @@ app.post('/api/analyses', async (c) => {
 
   // 3. Rate limiting per IP
   const ip = getClientIp(c);
+  console.log('[RateLimit] IP:', ip, 'headers:', {
+    xff: c.req.header('x-forwarded-for'),
+    xri: c.req.header('x-real-ip'),
+    cf: c.req.header('cf-connecting-ip'),
+  });
   if (!checkRateLimit(ip)) {
     return c.json({ error: 'Rate limit exceeded (5 requests/minute)' }, 429);
   }
