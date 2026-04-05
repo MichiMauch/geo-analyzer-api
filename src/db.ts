@@ -14,11 +14,11 @@ export interface AnalysisRow {
   answerability: number;
   trustSources: number;
   machineReadability: number;
+  aiCitation: number;
   extensionVersion: string;
 }
 
 export function initDb(): void {
-  // Ensure data directory exists
   const dir = path.dirname(DB_PATH);
   mkdirSync(dir, { recursive: true });
 
@@ -35,21 +35,30 @@ export function initDb(): void {
       answerability REAL NOT NULL,
       trust_sources REAL NOT NULL,
       machine_readability REAL NOT NULL,
+      ai_citation REAL NOT NULL DEFAULT 0,
       extension_version TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now'))
     )
   `);
 
+  // Add ai_citation column if missing (migration for existing DBs)
+  try {
+    db.exec(`ALTER TABLE analyses ADD COLUMN ai_citation REAL NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists
+  }
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_analyses_url ON analyses(url);
     CREATE INDEX IF NOT EXISTS idx_analyses_timestamp ON analyses(timestamp);
+    CREATE INDEX IF NOT EXISTS idx_analyses_created_at ON analyses(created_at);
   `);
 }
 
 export function insertAnalysis(row: AnalysisRow): void {
   const stmt = db.prepare(`
-    INSERT INTO analyses (url, timestamp, total_score, content_clarity, answerability, trust_sources, machine_readability, extension_version)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO analyses (url, timestamp, total_score, content_clarity, answerability, trust_sources, machine_readability, ai_citation, extension_version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   stmt.run(
@@ -60,8 +69,18 @@ export function insertAnalysis(row: AnalysisRow): void {
     row.answerability,
     row.trustSources,
     row.machineReadability,
+    row.aiCitation,
     row.extensionVersion,
   );
+}
+
+export function findRecentDuplicate(url: string, totalScore: number, sinceIso: string): boolean {
+  const stmt = db.prepare(`
+    SELECT 1 FROM analyses
+    WHERE url = ? AND total_score = ? AND created_at > ?
+    LIMIT 1
+  `);
+  return stmt.get(url, totalScore, sinceIso) !== undefined;
 }
 
 export function getAllAnalyses(limit: number) {
