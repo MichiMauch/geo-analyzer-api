@@ -15,7 +15,9 @@ const DEDUP_WINDOW_MINUTES = 60; // 1 hour
 const rateLimitStore = new Map<string, number[]>();
 
 function getClientIp(c: { req: { header: (k: string) => string | undefined } }): string {
-  return c.req.header('x-forwarded-for')?.split(',')[0].trim()
+  // Cloudflare passes real client IP in cf-connecting-ip
+  return c.req.header('cf-connecting-ip')
+    || c.req.header('x-forwarded-for')?.split(',')[0].trim()
     || c.req.header('x-real-ip')
     || 'unknown';
 }
@@ -61,13 +63,8 @@ app.post('/api/analyses', async (c) => {
     return c.json({ error: 'Unauthorized' }, 401);
   }
 
-  // 3. Rate limiting per IP
+  // 3. Rate limiting per IP (using Cloudflare's real client IP)
   const ip = getClientIp(c);
-  console.log('[RateLimit] IP:', ip, 'headers:', {
-    xff: c.req.header('x-forwarded-for'),
-    xri: c.req.header('x-real-ip'),
-    cf: c.req.header('cf-connecting-ip'),
-  });
   if (!checkRateLimit(ip)) {
     return c.json({ error: 'Rate limit exceeded (5 requests/minute)' }, 429);
   }
