@@ -74,13 +74,14 @@ export function insertAnalysis(row: AnalysisRow): void {
   );
 }
 
-export function findRecentDuplicate(url: string, totalScore: number, sinceIso: string): boolean {
+export function findRecentDuplicate(url: string, totalScore: number, windowMinutes: number): boolean {
   const stmt = db.prepare(`
     SELECT 1 FROM analyses
-    WHERE url = ? AND total_score = ? AND created_at > ?
+    WHERE url = ? AND total_score = ?
+      AND created_at > datetime('now', ?)
     LIMIT 1
   `);
-  return stmt.get(url, totalScore, sinceIso) !== undefined;
+  return stmt.get(url, totalScore, `-${windowMinutes} minutes`) !== undefined;
 }
 
 export function getAllAnalyses(limit: number) {

@@ -9,7 +9,7 @@ const app = new Hono();
 const API_SECRET = process.env.API_SECRET || 'd7fd0a8f603b27df21e6f5325147a1f02039e4127101c5be756c42187b9df76e';
 const RATE_LIMIT_MAX = 5;           // max requests per window per IP
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const DEDUP_WINDOW_MS = 60 * 60_000; // 1 hour
+const DEDUP_WINDOW_MINUTES = 60; // 1 hour
 
 // In-memory rate limiter (per-IP sliding window)
 const rateLimitStore = new Map<string, number[]>();
@@ -93,8 +93,7 @@ app.post('/api/analyses', async (c) => {
   }
 
   // 5. Deduplication — reject if same URL+score posted recently
-  const cutoffTime = new Date(Date.now() - DEDUP_WINDOW_MS).toISOString();
-  if (findRecentDuplicate(url, totalScore, cutoffTime)) {
+  if (findRecentDuplicate(url, totalScore, DEDUP_WINDOW_MINUTES)) {
     return c.json({ error: 'Duplicate: same URL+score within last hour' }, 409);
   }
 
