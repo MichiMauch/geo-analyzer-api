@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm -v)",
+      "Bash(npm install:*)",
+      "Bash(npx vite:*)",
+      "Bash(command -v nvm)",
+      "Read(//Users/michaelmauch/.nvm/**)"
+    ]
+  }
+}

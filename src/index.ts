@@ -1,12 +1,16 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
-import { initDb, insertAnalysis, getAllAnalyses, getAnalysesByUrl, findRecentDuplicate } from './db.js';
+import { initDb, insertAnalysis, getAllAnalyses, getAnalysesByUrl, findRecentDuplicate, getAnalysisStats, getScoreDistribution, getAnalysesPerDay, getTopUrls, getVersionStats } from './db.js';
 
 const app = new Hono();
 
 // Config
-const API_SECRET = process.env.API_SECRET || 'd7fd0a8f603b27df21e6f5325147a1f02039e4127101c5be756c42187b9df76e';
+const API_SECRET = process.env.API_SECRET;
+if (!API_SECRET) {
+  console.error('ERROR: API_SECRET environment variable is not set!');
+  process.exit(1);
+}
 const RATE_LIMIT_MAX = 5;           // max requests per window per IP
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const DEDUP_WINDOW_MINUTES = 60; // 1 hour
@@ -126,6 +130,72 @@ app.get('/api/analyses', (c) => {
 
   const analyses = url ? getAnalysesByUrl(url, limit) : getAllAnalyses(limit);
   return c.json(analyses);
+});
+
+// Tracking pixel endpoint (no CORS needed, works via <img> tag)
+const PIXEL = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+
+app.get('/api/track', (c) => {
+  // Validate API key
+  const key = c.req.query('k');
+  if (key !== API_SECRET) {
+    return c.body(PIXEL, 200, { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' });
+  }
+
+  // Rate limit
+  const ip = getClientIp(c);
+  if (!checkRateLimit(ip)) {
+    return c.body(PIXEL, 200, { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' });
+  }
+
+  const url = c.req.query('u');
+  const timestamp = c.req.query('t');
+  const totalScore = parseFloat(c.req.query('s') || '');
+  const cc = parseFloat(c.req.query('cc') || '');
+  const an = parseFloat(c.req.query('an') || '');
+  const ts = parseFloat(c.req.query('ts') || '');
+  const mr = parseFloat(c.req.query('mr') || '');
+  const ai = parseFloat(c.req.query('ai') || '');
+  const version = c.req.query('v') || 'unknown';
+
+  // Validate
+  if (url && timestamp && !isNaN(totalScore) && !isNaN(cc) && !isNaN(an) && !isNaN(ts) && !isNaN(mr) && !isNaN(ai)) {
+    // Dedup check
+    if (!findRecentDuplicate(url, totalScore, DEDUP_WINDOW_MINUTES)) {
+      insertAnalysis({
+        url,
+        timestamp,
+        totalScore,
+        contentClarity: cc,
+        answerability: an,
+        trustSources: ts,
+        machineReadability: mr,
+        aiCitation: ai,
+        extensionVersion: version,
+      });
+    }
+  }
+
+  // Always return 1x1 transparent GIF
+  return c.body(PIXEL, 200, { 'Content-Type': 'image/gif', 'Cache-Control': 'no-store' });
+});
+
+// Dashboard stats endpoint (protected)
+app.get('/api/stats', (c) => {
+  const providedSecret = c.req.header('x-api-key') || c.req.query('key');
+  if (providedSecret !== API_SECRET) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const days = parseInt(c.req.query('days') || '30', 10);
+
+  return c.json({
+    overview: getAnalysisStats(),
+    scoreDistribution: getScoreDistribution(),
+    perDay: getAnalysesPerDay(days),
+    topUrls: getTopUrls(10),
+    versions: getVersionStats(),
+  });
 });
 
 // Initialize database and start server

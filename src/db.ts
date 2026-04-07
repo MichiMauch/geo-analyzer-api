@@ -91,3 +91,70 @@ export function getAllAnalyses(limit: number) {
 export function getAnalysesByUrl(url: string, limit: number) {
   return db.prepare('SELECT * FROM analyses WHERE url = ? ORDER BY timestamp DESC LIMIT ?').all(url, limit);
 }
+
+export function getAnalysisStats() {
+  return db.prepare(`
+    SELECT
+      COUNT(*) as total_analyses,
+      AVG(total_score) as avg_score,
+      AVG(content_clarity) as avg_content_clarity,
+      AVG(answerability) as avg_answerability,
+      AVG(trust_sources) as avg_trust_sources,
+      AVG(machine_readability) as avg_machine_readability,
+      AVG(ai_citation) as avg_ai_citation,
+      MIN(total_score) as min_score,
+      MAX(total_score) as max_score,
+      COUNT(DISTINCT url) as unique_urls,
+      COUNT(DISTINCT extension_version) as unique_versions
+  `).get();
+}
+
+export function getScoreDistribution() {
+  return db.prepare(`
+    SELECT
+      CASE
+        WHEN total_score >= 20 THEN '20-25'
+        WHEN total_score >= 15 THEN '15-19'
+        WHEN total_score >= 10 THEN '10-14'
+        WHEN total_score >= 5 THEN '5-9'
+        ELSE '0-4'
+      END as range,
+      COUNT(*) as count
+    FROM analyses
+    GROUP BY range
+    ORDER BY range DESC
+  `).all();
+}
+
+export function getAnalysesPerDay(days: number = 30) {
+  return db.prepare(`
+    SELECT
+      DATE(created_at) as date,
+      COUNT(*) as count,
+      AVG(total_score) as avg_score
+    FROM analyses
+    WHERE created_at > datetime('now', ?)
+    GROUP BY DATE(created_at)
+    ORDER BY date ASC
+  `).all(`-${days} days`);
+}
+
+export function getTopUrls(limit: number = 10) {
+  return db.prepare(`
+    SELECT url, COUNT(*) as count, AVG(total_score) as avg_score
+    FROM analyses
+    GROUP BY url
+    ORDER BY count DESC
+    LIMIT ?
+  `).all(limit);
+}
+
+export function getVersionStats() {
+  return db.prepare(`
+    SELECT extension_version, COUNT(*) as count
+    FROM analyses
+    GROUP BY extension_version
+    ORDER BY count DESC
+  `).all();
+}
+
