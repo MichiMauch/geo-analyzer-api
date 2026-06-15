@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { basicAuth } from 'hono/basic-auth';
 import pg from 'pg';
 import { DASHBOARD_HTML } from './dashboard.js';
 
@@ -266,7 +267,19 @@ app.get('/v1/stats/history', async (c) => {
   return c.json({ days, points });
 });
 
-// Private, unauthenticated dashboard page (see note in dashboard.ts).
+// Private dashboard page, guarded by HTTP Basic Auth. Credentials come from
+// env (never hardcoded); if they're missing we fail closed (503) rather than
+// expose the page. Only the page is protected — /v1/stats[/history] stay open
+// (they're anonymous aggregates the public StatsSection already consumes).
+const DASH_USER = process.env.DASHBOARD_USER;
+const DASH_PASS = process.env.DASHBOARD_PASSWORD;
+
+app.use('/dashboard', async (c, next) => {
+  if (!DASH_USER || !DASH_PASS) {
+    return c.text('Dashboard auth not configured', 503);
+  }
+  return basicAuth({ username: DASH_USER, password: DASH_PASS })(c, next);
+});
 app.get('/dashboard', (c) => c.html(DASHBOARD_HTML));
 
 const port = parseInt(process.env.PORT || '3000', 10);
