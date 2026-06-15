@@ -2,6 +2,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import pg from 'pg';
+import { DASHBOARD_HTML } from './dashboard.js';
 
 // Ingest + stats API for Paul AI GEO Analyzer.
 //
@@ -166,6 +167,45 @@ async function computeStats(): Promise<Stats> {
   };
 }
 
+// --- History (time series, derived from created_at) --------------------------
+
+interface HistoryPoint {
+  day: string; // YYYY-MM-DD
+  analyses: number;
+  avgScore: number | null; // null on days with no analyses
+}
+
+// Daily buckets with gap-filling via generate_series, so the chart stays
+// continuous even on days without any analysis. No snapshot job needed — the
+// full history lives in the raw rows' created_at.
+async function computeHistory(days: number): Promise<HistoryPoint[]> {
+  const res = await pool.query(
+    `SELECT to_char(d, 'YYYY-MM-DD') AS day,
+            coalesce(a.cnt, 0)::int AS analyses,
+            a.avg_score AS avg_score
+       FROM generate_series(
+              now()::date - ($1::int - 1) * interval '1 day',
+              now()::date,
+              interval '1 day'
+            ) AS d
+       LEFT JOIN (
+         SELECT date_trunc('day', created_at)::date AS day,
+                count(*)::int AS cnt,
+                round(avg(score)::numeric, 1) AS avg_score
+           FROM analyses
+          WHERE created_at >= now()::date - ($1::int - 1) * interval '1 day'
+          GROUP BY 1
+       ) a ON a.day = d::date
+      ORDER BY d`,
+    [days]
+  );
+  return res.rows.map((r) => ({
+    day: r.day,
+    analyses: r.analyses,
+    avgScore: r.avg_score === null ? null : Number(r.avg_score),
+  }));
+}
+
 // --- App ----------------------------------------------------------------------
 
 const app = new Hono();
@@ -217,6 +257,17 @@ app.get('/v1/stats', async (c) => {
   c.header('Cache-Control', 'public, max-age=600');
   return c.json(statsCache.data);
 });
+
+app.get('/v1/stats/history', async (c) => {
+  const raw = parseInt(c.req.query('days') || '90', 10);
+  const days = isFinite(raw) ? Math.min(365, Math.max(1, raw)) : 90;
+  const points = await computeHistory(days);
+  c.header('Cache-Control', 'public, max-age=600');
+  return c.json({ days, points });
+});
+
+// Private, unauthenticated dashboard page (see note in dashboard.ts).
+app.get('/dashboard', (c) => c.html(DASHBOARD_HTML));
 
 const port = parseInt(process.env.PORT || '3000', 10);
 
