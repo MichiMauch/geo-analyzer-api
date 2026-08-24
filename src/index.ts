@@ -214,6 +214,11 @@ app.use('*', cors()); // ACAO * — payloads are anonymous, stats are public
 
 app.get('/health', (c) => c.json({ ok: true }));
 
+// The bare domain is what Coolify links to, and the service has no landing
+// page of its own — send it to the dashboard rather than Hono's 404. The
+// Basic Auth guard below still applies once the redirect lands.
+app.get('/', (c) => c.redirect('/dashboard'));
+
 app.post('/v1/analyses', async (c) => {
   const ip =
     c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
